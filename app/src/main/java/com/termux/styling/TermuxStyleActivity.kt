@@ -205,6 +205,13 @@ class TermuxStyleActivity : Activity() {
         if (requestCode == REQUEST_CODE_PICK_IMAGE && resultCode == RESULT_OK) {
             data?.data?.let { uri ->
                 try {
+                    val takeFlags: Int = data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                    try {
+                        contentResolver.takePersistableUriPermission(uri, takeFlags)
+                    } catch (e: Exception) {
+                        // Ignore if persistable permission is not granted by the provider
+                    }
+
                     val context = createPackageContext("com.termux", Context.CONTEXT_IGNORE_SECURITY)
                     val homeDir = File(context.filesDir, "home")
                     val termuxDir = File(homeDir, ".termux")
@@ -231,7 +238,7 @@ class TermuxStyleActivity : Activity() {
                         atomicFile.finishWrite(out)
                     } catch (e: Exception) {
                         try {
-                            out.close()
+                            atomicFile.failWrite(out)
                         } catch (ignored: Exception) {}
                         throw e
                     }
