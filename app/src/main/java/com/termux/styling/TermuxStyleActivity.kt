@@ -68,8 +68,10 @@ class TermuxStyleActivity : Activity() {
         val backgroundSpinner = findViewById<Button>(R.id.background_spinner)
 
         backgroundSpinner.setOnClickListener {
-            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
                 type = "image/*"
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             startActivityForResult(Intent.createChooser(intent, "Select Background Image"), REQUEST_CODE_PICK_IMAGE)
         }
@@ -202,6 +204,7 @@ class TermuxStyleActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_CODE_PICK_IMAGE && resultCode == RESULT_OK) {
             data?.data?.let { uri ->
+                var out: java.io.FileOutputStream? = null
                 try {
                     val context = createPackageContext("com.termux", Context.CONTEXT_IGNORE_SECURITY)
                     val homeDir = File(context.filesDir, "home")
@@ -209,23 +212,36 @@ class TermuxStyleActivity : Activity() {
                     if (!(termuxDir.isDirectory || termuxDir.mkdirs()))
                         throw RuntimeException("Cannot create termux dir=" + termuxDir.absolutePath)
 
+                    // Clean up potential old background files
+                    for (ext in arrayOf("png", "jpg", "jpeg", "webp")) {
+                        val oldFile = File(termuxDir, "background.$ext")
+                        if (oldFile.exists()) oldFile.delete()
+                    }
+
                     val destinationFile = File(termuxDir, "background.png").canonicalFile
                     destinationFile.setWritable(true)
                     destinationFile.parentFile?.setWritable(true)
                     destinationFile.parentFile?.setExecutable(true)
 
                     val atomicFile = AtomicFile(destinationFile)
-                    val out = atomicFile.startWrite()
+                    out = atomicFile.startWrite()
                     contentResolver.openInputStream(uri)?.use { inputStream ->
                         inputStream.copyTo(out)
-                    }
+                    } ?: throw RuntimeException("Failed to open input stream for uri: $uri")
                     atomicFile.finishWrite(out)
+                    out = null
 
                     val actionReload = "com.termux.app.reload_style"
                     val executeIntent = Intent(actionReload)
                     sendBroadcast(executeIntent)
                     Toast.makeText(this, "Background image updated", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
+                    if (out != null) {
+                        try {
+                            // AtomicFile doesn't have public failWrite taking FileOutputStream in all API levels or might require reflection/handling
+                            out.close()
+                        } catch (ignored: Exception) {}
+                    }
                     Log.w("termux", "Failed to save background image", e)
                     Toast.makeText(this, "Failed to save background image: " + e.message, Toast.LENGTH_LONG).show()
                 }
