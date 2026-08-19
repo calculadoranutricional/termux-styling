@@ -204,7 +204,6 @@ class TermuxStyleActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_CODE_PICK_IMAGE && resultCode == RESULT_OK) {
             data?.data?.let { uri ->
-                var out: java.io.FileOutputStream? = null
                 try {
                     val context = createPackageContext("com.termux", Context.CONTEXT_IGNORE_SECURITY)
                     val homeDir = File(context.filesDir, "home")
@@ -224,24 +223,24 @@ class TermuxStyleActivity : Activity() {
                     destinationFile.parentFile?.setExecutable(true)
 
                     val atomicFile = AtomicFile(destinationFile)
-                    out = atomicFile.startWrite()
-                    contentResolver.openInputStream(uri)?.use { inputStream ->
-                        inputStream.copyTo(out)
-                    } ?: throw RuntimeException("Failed to open input stream for uri: $uri")
-                    atomicFile.finishWrite(out)
-                    out = null
+                    val out = atomicFile.startWrite()
+                    try {
+                        contentResolver.openInputStream(uri)?.use { inputStream ->
+                            inputStream.copyTo(out)
+                        } ?: throw RuntimeException("Failed to open input stream for uri: $uri")
+                        atomicFile.finishWrite(out)
+                    } catch (e: Exception) {
+                        try {
+                            out.close()
+                        } catch (ignored: Exception) {}
+                        throw e
+                    }
 
                     val actionReload = "com.termux.app.reload_style"
                     val executeIntent = Intent(actionReload)
                     sendBroadcast(executeIntent)
                     Toast.makeText(this, "Background image updated", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
-                    if (out != null) {
-                        try {
-                            // AtomicFile doesn't have public failWrite taking FileOutputStream in all API levels or might require reflection/handling
-                            out.close()
-                        } catch (ignored: Exception) {}
-                    }
                     Log.w("termux", "Failed to save background image", e)
                     Toast.makeText(this, "Failed to save background image: " + e.message, Toast.LENGTH_LONG).show()
                 }
