@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets
 import java.util.*
 
 const val DEFAULT_FILENAME = "Default"
+const val REQUEST_CODE_PICK_IMAGE = 1001
 
 fun capitalize(str: String): String {
     var lastWhitespace = true
@@ -64,6 +65,14 @@ class TermuxStyleActivity : Activity() {
 
         val colorSpinner = findViewById<Button>(R.id.color_spinner)
         val fontSpinner = findViewById<Button>(R.id.font_spinner)
+        val backgroundSpinner = findViewById<Button>(R.id.background_spinner)
+
+        backgroundSpinner.setOnClickListener {
+            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                type = "image/*"
+            }
+            startActivityForResult(Intent.createChooser(intent, "Select Background Image"), REQUEST_CODE_PICK_IMAGE)
+        }
 
         val colorAdapter = ArrayAdapter<Selectable>(this, android.R.layout.simple_spinner_dropdown_item)
 
@@ -187,6 +196,41 @@ class TermuxStyleActivity : Activity() {
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
 
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_CODE_PICK_IMAGE && resultCode == RESULT_OK) {
+            data?.data?.let { uri ->
+                try {
+                    val context = createPackageContext("com.termux", Context.CONTEXT_IGNORE_SECURITY)
+                    val homeDir = File(context.filesDir, "home")
+                    val termuxDir = File(homeDir, ".termux")
+                    if (!(termuxDir.isDirectory || termuxDir.mkdirs()))
+                        throw RuntimeException("Cannot create termux dir=" + termuxDir.absolutePath)
+
+                    val destinationFile = File(termuxDir, "background.png").canonicalFile
+                    destinationFile.setWritable(true)
+                    destinationFile.parentFile?.setWritable(true)
+                    destinationFile.parentFile?.setExecutable(true)
+
+                    val atomicFile = AtomicFile(destinationFile)
+                    val out = atomicFile.startWrite()
+                    contentResolver.openInputStream(uri)?.use { inputStream ->
+                        inputStream.copyTo(out)
+                    }
+                    atomicFile.finishWrite(out)
+
+                    val actionReload = "com.termux.app.reload_style"
+                    val executeIntent = Intent(actionReload)
+                    sendBroadcast(executeIntent)
+                    Toast.makeText(this, "Background image updated", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Log.w("termux", "Failed to save background image", e)
+                    Toast.makeText(this, "Failed to save background image: " + e.message, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
 }
